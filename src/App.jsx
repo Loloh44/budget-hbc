@@ -5,6 +5,7 @@ import Budget from './pages/Budget'
 import Versions from './pages/Versions'
 import Reel from './pages/Reel'
 import Import from './pages/Import'
+import ImportExcel from './pages/ImportExcel'
 import Referentiel from './pages/Referentiel'
 import Exercices from './pages/Exercices'
 
@@ -24,14 +25,14 @@ function Sidebar() {
           onChange={e => setExerciceId(e.target.value)}
         >
           {exercices.map(ex => (
-            <option key={ex.id} value={ex.id} style={{ background: '#0f1f3d' }}>{ex.code} — {ex.libelle}</option>
+            <option key={ex.id} value={ex.id} style={{ background: '#3d1a6e' }}>{ex.code} — {ex.libelle}</option>
           ))}
         </select>
       </div>
       <nav className="sidebar-nav">
         <div className="nav-section-label">Tableau de bord</div>
         <NavLink to="/dashboard" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
-          <span className="icon">📊</span> Synthèse
+          <span className="icon">📊</span> Synthèse & graphiques
         </NavLink>
         <div className="nav-section-label">Budget</div>
         <NavLink to="/versions" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
@@ -39,6 +40,9 @@ function Sidebar() {
         </NavLink>
         <NavLink to="/budget" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
           <span className="icon">📋</span> Lignes budgétaires
+        </NavLink>
+        <NavLink to="/import-excel" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
+          <span className="icon">📥</span> Import Excel budget
         </NavLink>
         <div className="nav-section-label">Suivi réel</div>
         <NavLink to="/reel" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
@@ -71,6 +75,7 @@ function AppInner() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/versions" element={<Versions />} />
           <Route path="/budget" element={<Budget />} />
+          <Route path="/import-excel" element={<ImportExcel />} />
           <Route path="/reel" element={<Reel />} />
           <Route path="/import" element={<Import />} />
           <Route path="/referentiel" element={<Referentiel />} />
