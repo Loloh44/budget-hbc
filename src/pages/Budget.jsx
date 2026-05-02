@@ -45,12 +45,18 @@ export default function Budget() {
   }
 
   const loadLignes = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('budget_lignes')
-      .select('*, budget_actions(libelle, libelle_complet, commission_id, budget_commissions(libelle, ordre))')
+      .select('*, budget_actions(libelle, libelle_complet, commission_id, ordre, budget_commissions(libelle, ordre))')
       .eq('version_id', versionId)
-      .order('budget_actions(budget_commissions(ordre))')
-    setLignes(data || [])
+    if (error) { console.error('loadLignes:', error); setLignes([]); return }
+    const sorted = (data || []).sort((a, b) => {
+      const cA = a.budget_actions?.budget_commissions?.ordre ?? 99
+      const cB = b.budget_actions?.budget_commissions?.ordre ?? 99
+      if (cA !== cB) return cA - cB
+      return (a.budget_actions?.ordre ?? 99) - (b.budget_actions?.ordre ?? 99)
+    })
+    setLignes(sorted)
   }
 
   const openAdd = () => { setForm(EMPTY_FORM); setEditId(null); setErr(''); setModal('edit') }
