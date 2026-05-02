@@ -1,11 +1,35 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useExercice } from '../hooks/useExercice'
-import { fmt, fmtDate, groupBy } from '../lib/utils'
+import { fmt } from '../lib/utils'
 
 const EMPTY_FORM = {
   action_id: '', date_prevue: '', libelle: '', commentaire: '',
   montant: '', compte_comptable: '',
+}
+
+// Colonnes triables : clé interne → fonction d'accès sur une ligne
+const SORT_COLS = {
+  date:     l => l.date_prevue || '',
+  action:   l => l.budget_actions?.libelle || '',
+  libelle:  l => l.libelle || '',
+  montant:  l => parseFloat(l.montant) || 0,
+  compte:   l => l.compte_comptable || '',
+}
+
+function SortTh({ col, label, sort, onSort, className }) {
+  const active = sort.col === col
+  const arrow = active ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''
+  return (
+    <th
+      className={className}
+      onClick={() => onSort(col)}
+      style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+      title="Cliquer pour trier"
+    >
+      {label}<span style={{ color: active ? 'var(--gold)' : 'var(--gray200)', fontSize: 11 }}>{active ? arrow : ' ⇅'}</span>
+    </th>
+  )
 }
 
 export default function Budget() {
@@ -22,6 +46,7 @@ export default function Budget() {
   const [err, setErr] = useState('')
   const [filterAction, setFilterAction] = useState('')
   const [searchText, setSearchText] = useState('')
+  const [sort, setSort] = useState({ col: null, dir: 'asc' })
 
   useEffect(() => { loadReferentiel() }, [])
   useEffect(() => { if (exerciceId) loadVersions() }, [exerciceId])
@@ -30,16 +55,16 @@ export default function Budget() {
   const loadReferentiel = async () => {
     const [{ data: c }, { data: a }] = await Promise.all([
       supabase.from('budget_commissions').select('*').order('ordre'),
-      supabase.from('budget_actions').select('*, budget_commissions(libelle,ordre)').eq('est_actif', true).order('ordre'),
+      supabase.from('budget_actions').select('*, budget_commissions(libelle,ordre)').eq('est_actif', true).order('libelle'),
     ])
     setCommissions(c || [])
-    setActions(a || [])
+    // Tri alphabétique pour le filtre
+    setActions((a || []).sort((x, y) => x.libelle_complet.localeCompare(y.libelle_complet, 'fr')))
   }
 
   const loadVersions = async () => {
     const { data } = await supabase.from('budget_versions').select('*').eq('exercice_id', exerciceId).order('ordre')
     setVersions(data || [])
-    // Sélectionner la version référence par défaut
     const ref = data?.find(v => v.est_reference) || data?.[0]
     if (ref) setVersionId(ref.id)
   }
@@ -50,6 +75,7 @@ export default function Budget() {
       .select('*, budget_actions(libelle, libelle_complet, commission_id, ordre, budget_commissions(libelle, ordre))')
       .eq('version_id', versionId)
     if (error) { console.error('loadLignes:', error); setLignes([]); return }
+    // Tri par défaut : commission → action
     const sorted = (data || []).sort((a, b) => {
       const cA = a.budget_actions?.budget_commissions?.ordre ?? 99
       const cB = b.budget_actions?.budget_commissions?.ordre ?? 99
@@ -57,6 +83,13 @@ export default function Budget() {
       return (a.budget_actions?.ordre ?? 99) - (b.budget_actions?.ordre ?? 99)
     })
     setLignes(sorted)
+  }
+
+  const handleSort = (col) => {
+    setSort(prev => ({
+      col,
+      dir: prev.col === col && prev.dir === 'asc' ? 'desc' : 'asc'
+    }))
   }
 
   const openAdd = () => { setForm(EMPTY_FORM); setEditId(null); setErr(''); setModal('edit') }
@@ -83,18 +116,36 @@ export default function Budget() {
     loadLignes()
   }
 
-  const filtered = lignes.filter(l => {
+  // Filtrage
+  let filtered = lignes.filter(l => {
     if (filterAction && l.action_id !== filterAction) return false
-    if (searchText && !l.libelle.toLowerCase().includes(searchText.toLowerCase()) && !(l.commentaire || '').toLowerCase().includes(searchText.toLowerCase())) return false
+    if (searchText) {
+      const s = searchText.toLowerCase()
+      if (!l.libelle.toLowerCase().includes(s) && !(l.commentaire || '').toLowerCase().includes(s)) return false
+    }
     return true
   })
 
+  // Tri colonnes (si actif, on abandonne le regroupement par commission)
+  const isSorted = !!sort.col
+  if (isSorted) {
+    const fn = SORT_COLS[sort.col]
+    filtered = [...filtered].sort((a, b) => {
+      const vA = fn(a), vB = fn(b)
+      const cmp = typeof vA === 'number' ? vA - vB : String(vA).localeCompare(String(vB), 'fr')
+      return sort.dir === 'asc' ? cmp : -cmp
+    })
+  }
+
+  // Regroupement par commission (uniquement si pas de tri actif)
   const grouped = {}
-  filtered.forEach(l => {
-    const k = l.budget_actions?.budget_commissions?.libelle || 'Autre'
-    if (!grouped[k]) grouped[k] = []
-    grouped[k].push(l)
-  })
+  if (!isSorted) {
+    filtered.forEach(l => {
+      const k = l.budget_actions?.budget_commissions?.libelle || 'Autre'
+      if (!grouped[k]) grouped[k] = []
+      grouped[k].push(l)
+    })
+  }
 
   const currentVersion = versions.find(v => v.id === versionId)
   const total = filtered.reduce((s, l) => s + parseFloat(l.montant), 0)
@@ -109,6 +160,27 @@ export default function Budget() {
     const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `budget-${currentExercice?.code}-${currentVersion?.libelle || ''}.csv`; a.click()
   }
+
+  const sortProps = { sort, onSort: handleSort }
+
+  const renderRow = (l) => (
+    <tr key={l.id}>
+      <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+        {l.date_prevue ? new Date(l.date_prevue).toLocaleDateString('fr-FR', { month: '2-digit', year: '2-digit' }) : <span className="text-muted">—</span>}
+      </td>
+      <td style={{ fontSize: 12, color: 'var(--gray600)' }}>{l.budget_actions?.libelle}</td>
+      <td>{l.libelle}</td>
+      <td style={{ color: 'var(--gray400)', fontSize: 12 }}>{l.commentaire}</td>
+      <td className={`right amount ${parseFloat(l.montant) > 0 ? 'pos' : 'neg'}`}>{fmt(parseFloat(l.montant))}</td>
+      <td><span className="numero-badge">{l.compte_comptable}</span></td>
+      <td>
+        <div className="inline-edit-actions">
+          <button className="btn btn-xs btn-outline" onClick={() => openEdit(l)}>✏️</button>
+          <button className="btn btn-xs btn-danger" onClick={() => deleteLigne(l.id)}>🗑</button>
+        </div>
+      </td>
+    </tr>
+  )
 
   return (
     <>
@@ -127,20 +199,10 @@ export default function Budget() {
         {/* Sélecteur version */}
         {versions.length > 0 && (
           <div className="card" style={{ marginBottom: 16, padding: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 0, overflowX: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', overflowX: 'auto' }}>
               {versions.map(v => (
-                <button
-                  key={v.id}
-                  onClick={() => setVersionId(v.id)}
-                  style={{
-                    padding: '12px 20px', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
-                    background: versionId === v.id ? v.couleur || 'var(--navy)' : 'transparent',
-                    color: versionId === v.id ? '#fff' : 'var(--gray600)',
-                    fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: versionId === v.id ? 600 : 400,
-                    borderBottom: versionId === v.id ? `3px solid ${v.couleur || 'var(--navy)'}` : '3px solid transparent',
-                    transition: 'all .15s',
-                  }}
-                >
+                <button key={v.id} onClick={() => { setVersionId(v.id); setSort({ col: null, dir: 'asc' }) }}
+                  style={{ padding: '12px 20px', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', background: versionId === v.id ? v.couleur || 'var(--navy)' : 'transparent', color: versionId === v.id ? '#fff' : 'var(--gray600)', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: versionId === v.id ? 600 : 400, borderBottom: versionId === v.id ? `3px solid ${v.couleur || 'var(--navy)'}` : '3px solid transparent', transition: 'all .15s' }}>
                   {v.est_reference && '⭐ '}{v.libelle}
                 </button>
               ))}
@@ -150,7 +212,7 @@ export default function Budget() {
 
         {versions.length === 0 && (
           <div className="alert alert-info">
-            Aucune version pour cet exercice. Créez-en une dans <a href="#/versions" style={{ color: 'var(--navy)', fontWeight: 600 }}>Versions & Simulations</a>.
+            Aucune version. Créez-en une dans <a href="#/versions" style={{ color: 'var(--navy)', fontWeight: 600 }}>Versions & Simulations</a>.
           </div>
         )}
 
@@ -158,12 +220,17 @@ export default function Budget() {
           <>
             <div className="filter-bar">
               <input placeholder="🔍 Rechercher…" value={searchText} onChange={e => setSearchText(e.target.value)} style={{ maxWidth: 220 }} />
-              <select value={filterAction} onChange={e => setFilterAction(e.target.value)}>
+              <select value={filterAction} onChange={e => setFilterAction(e.target.value)} style={{ maxWidth: 260 }}>
                 <option value="">Toutes les actions</option>
                 {actions.map(a => <option key={a.id} value={a.id}>{a.libelle_complet}</option>)}
               </select>
+              {isSorted && (
+                <button className="btn btn-xs btn-outline" onClick={() => setSort({ col: null, dir: 'asc' })} title="Revenir au groupement par commission">
+                  ↺ Regrouper par commission
+                </button>
+              )}
               <span className="text-muted ml-auto">
-                {filtered.length} ligne{filtered.length > 1 ? 's' : ''} · Résultat : <strong style={{ color: total >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmt(total)}</strong>
+                {filtered.length} ligne{filtered.length > 1 ? 's' : ''} · <strong style={{ color: total >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmt(total)}</strong>
               </span>
             </div>
 
@@ -172,43 +239,31 @@ export default function Budget() {
                 <table>
                   <thead>
                     <tr>
-                      <th>Date</th>
-                      <th>Action</th>
-                      <th>Libellé</th>
+                      <SortTh col="date"    label="Date"      {...sortProps} />
+                      <SortTh col="action"  label="Action"    {...sortProps} />
+                      <SortTh col="libelle" label="Libellé"   {...sortProps} />
                       <th>Commentaire</th>
-                      <th className="right">Montant</th>
-                      <th>Compte</th>
+                      <SortTh col="montant" label="Montant"   {...sortProps} className="right" />
+                      <SortTh col="compte"  label="Compte"    {...sortProps} />
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {Object.entries(grouped).map(([comm, rows]) => {
-                      const tot = rows.reduce((s, l) => s + parseFloat(l.montant), 0)
-                      return [
-                        <tr key={`c-${comm}`} className="commission-row">
-                          <td colSpan={7}>{comm} · <span style={{ fontFamily: 'var(--font-body)', fontSize: 13 }}>{fmt(tot)}</span></td>
-                        </tr>,
-                        ...rows.map(l => (
-                          <tr key={l.id}>
-                            <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-                              {l.date_prevue ? new Date(l.date_prevue).toLocaleDateString('fr-FR', { month: '2-digit', year: '2-digit' }) : <span className="text-muted">—</span>}
-                            </td>
-                            <td style={{ fontSize: 12, color: 'var(--gray600)' }}>{l.budget_actions?.libelle}</td>
-                            <td>{l.libelle}</td>
-                            <td style={{ color: 'var(--gray400)', fontSize: 12 }}>{l.commentaire}</td>
-                            <td className={`right amount ${parseFloat(l.montant) > 0 ? 'pos' : 'neg'}`}>{fmt(parseFloat(l.montant))}</td>
-                            <td><span className="numero-badge">{l.compte_comptable}</span></td>
-                            <td>
-                              <div className="inline-edit-actions">
-                                <button className="btn btn-xs btn-outline" onClick={() => openEdit(l)}>✏️</button>
-                                <button className="btn btn-xs btn-danger" onClick={() => deleteLigne(l.id)}>🗑</button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))
-                      ]
-                    })}
-                    {filtered.length === 0 && <tr><td colSpan={7}><div className="empty-state"><div className="icon">📋</div><p>Aucune ligne</p></div></td></tr>}
+                    {isSorted
+                      ? filtered.map(renderRow)
+                      : Object.entries(grouped).map(([comm, rows]) => {
+                          const tot = rows.reduce((s, l) => s + parseFloat(l.montant), 0)
+                          return [
+                            <tr key={`c-${comm}`} className="commission-row">
+                              <td colSpan={7}>{comm} · <span style={{ fontFamily: 'var(--font-body)', fontSize: 13 }}>{fmt(tot)}</span></td>
+                            </tr>,
+                            ...rows.map(renderRow)
+                          ]
+                        })
+                    }
+                    {filtered.length === 0 && (
+                      <tr><td colSpan={7}><div className="empty-state"><div className="icon">📋</div><p>Aucune ligne</p></div></td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -233,7 +288,7 @@ export default function Budget() {
                     <option value="">— Sélectionner —</option>
                     {commissions.map(c => (
                       <optgroup key={c.id} label={c.libelle}>
-                        {actions.filter(a => a.commission_id === c.id).map(a => (
+                        {actions.filter(a => a.commission_id === c.id).sort((x,y) => x.libelle.localeCompare(y.libelle,'fr')).map(a => (
                           <option key={a.id} value={a.id}>{a.libelle}</option>
                         ))}
                       </optgroup>
