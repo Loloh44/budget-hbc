@@ -10,8 +10,15 @@ import { fmt, fmtDate } from '../lib/utils'
 // Date : DD/MM/YYYY, YYYY-MM-DD, ou objet Date Excel
 function parseDate(val) {
   if (!val) return null
-  // Objet Date (xlsx)
+  // Objet Date natif (xlsx avec cellDates:true)
   if (val instanceof Date) return isNaN(val) ? null : val.toISOString().slice(0, 10)
+  // Nombre → serial Excel (ex: 45809) → convertir
+  if (typeof val === 'number') {
+    try {
+      const epoch = new Date(Date.UTC(1899, 11, 30) + val * 86400000)
+      return epoch.toISOString().slice(0, 10)
+    } catch { return null }
+  }
   const s = String(val).split('\n')[0].trim()
   // DD/MM/YYYY
   if (s.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
@@ -158,7 +165,7 @@ export default function Import() {
       const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
       const sheetName = wb.SheetNames.find(n => n.toLowerCase().includes('journal')) || wb.SheetNames[0]
       const ws = wb.Sheets[sheetName]
-      const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false, dateNF: 'yyyy-mm-dd' })
+      const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true })
 
       // Trouver la ligne d'en-tête
       let headerIdx = -1
