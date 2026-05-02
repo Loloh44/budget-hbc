@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { useExercice } from '../hooks/useExercice'
@@ -21,7 +21,7 @@ export default function ImportExcel() {
   const [err, setErr] = useState('')
   const fileRef = useRef()
 
-  useState(() => { loadRefs() }, [exerciceId])
+  useEffect(() => { loadRefs() }, [exerciceId])
 
   const loadRefs = async () => {
     if (!exerciceId) return
