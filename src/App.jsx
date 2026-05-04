@@ -8,6 +8,7 @@ import Import from './pages/Import'
 import ImportExcel from './pages/ImportExcel'
 import Referentiel from './pages/Referentiel'
 import Exercices from './pages/Exercices'
+import Resultats from './pages/Resultats'
 
 function Sidebar() {
   const { exercices, exerciceId, setExerciceId } = useExercice()
@@ -35,6 +36,9 @@ function Sidebar() {
           <span className="icon">📊</span> Synthèse & graphiques
         </NavLink>
         <div className="nav-section-label">Budget</div>
+        <NavLink to="/resultats" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
+          <span className="icon">📈</span> Résultats par commission
+        </NavLink>
         <NavLink to="/versions" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
           <span className="icon">🗂️</span> Versions & simulations
         </NavLink>
@@ -73,6 +77,7 @@ function AppInner() {
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/resultats" element={<Resultats />} />
           <Route path="/versions" element={<Versions />} />
           <Route path="/budget" element={<Budget />} />
           <Route path="/import-excel" element={<ImportExcel />} />
