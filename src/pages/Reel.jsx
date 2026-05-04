@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useExercice } from '../hooks/useExercice'
 import { fmt, fmtDate, groupBy } from '../lib/utils'
+import { exportReelXLSX } from '../lib/exportExcel'
 
 const EMPTY_FORM = {
   numero: '', date_ecriture: '', code_comptable: '', libelle: '',
@@ -94,17 +95,7 @@ export default function Reel() {
   const totalDepenses = filtered.filter(e => parseFloat(e.montant) < 0).reduce((s, e) => s + parseFloat(e.montant), 0)
 
   const exportCSV = () => {
-    const rows = [['Numéro', 'Date', 'Code', 'Libellé', 'Commentaire', 'Montant', 'Action', 'Banque', 'Moyen paiement', 'Date rapprochement']]
-    filtered.forEach(e => rows.push([
-      e.numero || '', e.date_ecriture || '', e.code_comptable || '', e.libelle,
-      e.commentaire || '', e.montant, e.budget_actions?.libelle_complet || '', e.banque || '',
-      e.moyen_paiement || '', e.date_rapprochement || ''
-    ]))
-    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\n')
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = `reel-${currentExercice?.code}.csv`; a.click()
-    URL.revokeObjectURL(url)
+    exportReelXLSX(filtered, currentExercice?.code || '')
   }
 
   return (
@@ -115,7 +106,7 @@ export default function Reel() {
           <p>{currentExercice?.libelle} · {ecritures.length} écriture{ecritures.length > 1 ? 's' : ''}</p>
         </div>
         <div className="btn-group">
-          <button className="btn btn-outline" onClick={exportCSV}>⬇ CSV</button>
+          <button className="btn btn-outline" onClick={exportCSV}>⬇ Excel</button>
           <button className="btn btn-gold" onClick={openAdd}>+ Écriture manuelle</button>
         </div>
       </div>

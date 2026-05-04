@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useExercice } from '../hooks/useExercice'
 import { fmt } from '../lib/utils'
+import { exportBudgetXLSX } from '../lib/exportExcel'
 
 const EMPTY_FORM = {
   action_id: '', date_prevue: '', libelle: '', commentaire: '',
@@ -151,14 +152,7 @@ export default function Budget() {
   const total = filtered.reduce((s, l) => s + parseFloat(l.montant), 0)
 
   const exportCSV = () => {
-    const rows = [['Date', 'Commission', 'Action', 'Libellé', 'Commentaire', 'Montant', 'Compte']]
-    filtered.forEach(l => rows.push([
-      l.date_prevue || '', l.budget_actions?.budget_commissions?.libelle || '', l.budget_actions?.libelle_complet || '',
-      l.libelle, l.commentaire || '', l.montant, l.compte_comptable || '',
-    ]))
-    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\n')
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `budget-${currentExercice?.code}-${currentVersion?.libelle || ''}.csv`; a.click()
+    exportBudgetXLSX(filtered, currentExercice?.code || '', currentVersion?.libelle || '')
   }
 
   const sortProps = { sort, onSort: handleSort }
@@ -190,7 +184,7 @@ export default function Budget() {
           <p>{currentExercice?.libelle}</p>
         </div>
         <div className="btn-group">
-          <button className="btn btn-outline" onClick={exportCSV}>⬇ CSV</button>
+          <button className="btn btn-outline" onClick={exportCSV}>⬇ Excel</button>
           <button className="btn btn-gold" onClick={openAdd} disabled={!versionId}>+ Nouvelle ligne</button>
         </div>
       </div>
