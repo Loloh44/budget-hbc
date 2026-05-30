@@ -102,18 +102,8 @@ function LigneBudget({ ligne, onUpdate, onDelete, actionId, exerciceCibleId, ver
 function ActionBloc({ action, reelLignes, budgetSourceLignes, budgetCibleLignes, exerciceCibleId, versionCibleId, coeff, onRefresh }) {
   const [open, setOpen] = useState(false)
   const [localCible, setLocalCible] = useState(budgetCibleLignes)
-
-  // Sync uniquement si les ids changent (nouvelles lignes depuis l'extérieur)
-  useEffect(() => {
-    setLocalCible(prev => {
-      const prevIds = new Set(prev.filter(l => l.id).map(l => l.id))
-      const newIds = new Set(budgetCibleLignes.map(l => l.id))
-      const sameIds = prevIds.size === newIds.size && [...prevIds].every(id => newIds.has(id))
-      if (sameIds) return prev
-      const enCours = prev.filter(l => !l.id)
-      return [...budgetCibleLignes, ...enCours]
-    })
-  }, [budgetCibleLignes])
+  // Pas de useEffect sur budgetCibleLignes : on gère l'état entièrement en local
+  // La sauvegarde Supabase se fait dans LigneBudget.save(), l'affichage est géré ici
 
   const totalReel = reelLignes.reduce((s, l) => s + parseFloat(l.montant || 0), 0)
   const totalSrc = budgetSourceLignes.reduce((s, l) => s + parseFloat(l.montant || 0), 0)
@@ -130,7 +120,7 @@ function ActionBloc({ action, reelLignes, budgetSourceLignes, budgetCibleLignes,
       montant: applyCoeff(l.montant, coeff), compte_comptable: l.code_comptable || null,
     }))
     const { data } = await supabase.from('budget_lignes').insert(toInsert).select()
-    if (data) { setLocalCible(prev => [...prev, ...data]); onRefresh() }
+    if (data) setLocalCible(prev => [...prev, ...data])
   }
 
   // Copier une seule ligne réelle
@@ -141,7 +131,7 @@ function ActionBloc({ action, reelLignes, budgetSourceLignes, budgetCibleLignes,
       montant: applyCoeff(l.montant, coeff), compte_comptable: l.code_comptable || null,
     }
     const { data } = await supabase.from('budget_lignes').insert(payload).select().single()
-    if (data) { setLocalCible(prev => [...prev, data]); onRefresh() }
+    if (data) setLocalCible(prev => [...prev, data])
   }
 
   // Copier toutes les lignes d'un mois
@@ -152,7 +142,7 @@ function ActionBloc({ action, reelLignes, budgetSourceLignes, budgetCibleLignes,
       montant: applyCoeff(l.montant, coeff), compte_comptable: l.code_comptable || null,
     }))
     const { data } = await supabase.from('budget_lignes').insert(toInsert).select()
-    if (data) { setLocalCible(prev => [...prev, ...data]); onRefresh() }
+    if (data) setLocalCible(prev => [...prev, ...data])
   }
 
   // Copier uniquement le sous-total d'un mois (1 ligne agrégée)
@@ -168,7 +158,7 @@ function ActionBloc({ action, reelLignes, budgetSourceLignes, budgetCibleLignes,
       compte_comptable: lignesMois[0]?.code_comptable || null,
     }
     const { data } = await supabase.from('budget_lignes').insert(payload).select().single()
-    if (data) { setLocalCible(prev => [...prev, data]); onRefresh() }
+    if (data) setLocalCible(prev => [...prev, data])
   }
 
   const ajouterLigne = (e) => {
@@ -185,7 +175,7 @@ function ActionBloc({ action, reelLignes, budgetSourceLignes, budgetCibleLignes,
 
   const handleDelete = (key) => {
     setLocalCible(prev => prev.filter(l => l.id !== key && l._tmpId !== key))
-    onRefresh()
+    // Pas de onRefresh() : suppression gérée localement
   }
 
   const thStyle = { padding: '4px 6px', fontSize: 10, fontWeight: 600, color: 'var(--gray400)', textTransform: 'uppercase', letterSpacing: '.05em', textAlign: 'left' }
