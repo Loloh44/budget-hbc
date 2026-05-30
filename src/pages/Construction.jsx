@@ -102,23 +102,17 @@ function LigneBudget({ ligne, onUpdate, onDelete, actionId, exerciceCibleId, ver
 function ActionBloc({ action, reelLignes, budgetSourceLignes, budgetCibleLignes, exerciceCibleId, versionCibleId, coeff, onRefresh }) {
   const [open, setOpen] = useState(false)
   const [localCible, setLocalCible] = useState(budgetCibleLignes)
-  const [initialized, setInitialized] = useState(false)
 
-  // Synchroniser depuis les props UNIQUEMENT à l'init ou après un refresh externe
-  // (pas après une modif locale pour éviter les doublons)
+  // Sync uniquement si les ids changent (nouvelles lignes depuis l'extérieur)
   useEffect(() => {
-    if (!initialized) {
-      setLocalCible(budgetCibleLignes)
-      setInitialized(true)
-    } else {
-      // Merger proprement : garder les lignes locales sans id (en cours de saisie)
-      // et remplacer les lignes avec id par la version fraîche de la base
-      setLocalCible(prev => {
-        const enCours = prev.filter(l => !l.id) // lignes temporaires sans id
-        const deBase = budgetCibleLignes         // lignes fraîches de la base
-        return [...deBase, ...enCours]
-      })
-    }
+    setLocalCible(prev => {
+      const prevIds = new Set(prev.filter(l => l.id).map(l => l.id))
+      const newIds = new Set(budgetCibleLignes.map(l => l.id))
+      const sameIds = prevIds.size === newIds.size && [...prevIds].every(id => newIds.has(id))
+      if (sameIds) return prev
+      const enCours = prev.filter(l => !l.id)
+      return [...budgetCibleLignes, ...enCours]
+    })
   }, [budgetCibleLignes])
 
   const totalReel = reelLignes.reduce((s, l) => s + parseFloat(l.montant || 0), 0)
