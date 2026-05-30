@@ -123,6 +123,44 @@ function ActionBloc({ action, reelLignes, budgetSourceLignes, budgetCibleLignes,
     if (data) { setLocalCible(prev => [...prev, ...data]); onRefresh() }
   }
 
+  // Copier une seule ligne réelle
+  const copierLigne = async (l) => {
+    const payload = {
+      exercice_id: exerciceCibleId, version_id: versionCibleId, action_id: action.id,
+      date_prevue: l.date_ecriture || null, libelle: l.libelle, commentaire: l.commentaire || null,
+      montant: applyCoeff(l.montant, coeff), compte_comptable: l.code_comptable || null,
+    }
+    const { data } = await supabase.from('budget_lignes').insert(payload).select().single()
+    if (data) { setLocalCible(prev => [...prev, data]); onRefresh() }
+  }
+
+  // Copier toutes les lignes d'un mois
+  const copierMoisLignes = async (lignesMois, labelMois) => {
+    const toInsert = lignesMois.map(l => ({
+      exercice_id: exerciceCibleId, version_id: versionCibleId, action_id: action.id,
+      date_prevue: l.date_ecriture || null, libelle: l.libelle, commentaire: l.commentaire || null,
+      montant: applyCoeff(l.montant, coeff), compte_comptable: l.code_comptable || null,
+    }))
+    const { data } = await supabase.from('budget_lignes').insert(toInsert).select()
+    if (data) { setLocalCible(prev => [...prev, ...data]); onRefresh() }
+  }
+
+  // Copier uniquement le sous-total d'un mois (1 ligne agrégée)
+  const copierMoisTotal = async (lignesMois, labelMois) => {
+    const total = lignesMois.reduce((s, l) => s + parseFloat(l.montant || 0), 0)
+    const moisKey = lignesMois[0]?.date_ecriture?.slice(0, 7) || ''
+    const payload = {
+      exercice_id: exerciceCibleId, version_id: versionCibleId, action_id: action.id,
+      date_prevue: moisKey ? moisKey + '-01' : null,
+      libelle: `${action.libelle} — ${labelMois}`,
+      commentaire: `Sous-total ${labelMois} (${lignesMois.length} écritures)`,
+      montant: applyCoeff(total, coeff),
+      compte_comptable: lignesMois[0]?.code_comptable || null,
+    }
+    const { data } = await supabase.from('budget_lignes').insert(payload).select().single()
+    if (data) { setLocalCible(prev => [...prev, data]); onRefresh() }
+  }
+
   const ajouterLigne = (e) => {
     e.stopPropagation()
     setLocalCible(prev => [...prev, { _tmpId: crypto.randomUUID(), libelle: '', montant: '' }])
@@ -180,34 +218,92 @@ function ActionBloc({ action, reelLignes, budgetSourceLignes, budgetCibleLignes,
             </div>
             {reelLignes.length === 0
               ? <p style={{ fontSize: 12, color: 'var(--gray400)', fontStyle: 'italic' }}>Aucune écriture réelle</p>
-              : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>
-                      <th style={thStyle}>Date</th>
-                      <th style={thStyle}>Libellé</th>
-                      <th style={thStyle}>Commentaire</th>
-                      <th style={{ ...thStyle, textAlign: 'right' }}>Montant</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reelLignes.map(l => (
-                      <tr key={l.id} style={{ borderBottom: '1px solid var(--gray100)' }}>
-                        <td style={{ padding: '4px 6px', fontSize: 11, whiteSpace: 'nowrap', color: 'var(--gray600)' }}>{moisLabel(l.date_ecriture)}</td>
-                        <td style={{ padding: '4px 6px', fontSize: 12 }}>{l.libelle}</td>
-                        <td style={{ padding: '4px 6px', fontSize: 11, color: 'var(--gray400)' }}>{l.commentaire}</td>
-                        <td style={{ padding: '4px 6px', textAlign: 'right', fontSize: 12, fontWeight: 500, color: parseFloat(l.montant) > 0 ? 'var(--green)' : 'var(--red)' }}>
-                          {fmt(parseFloat(l.montant))}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr style={{ borderTop: '2px solid var(--gray200)' }}>
-                      <td colSpan={3} style={{ padding: '6px 6px', fontWeight: 700, fontSize: 12 }}>Total réel</td>
-                      <td style={{ padding: '6px 6px', textAlign: 'right', fontWeight: 700, fontSize: 12, color: totalReel > 0 ? 'var(--green)' : 'var(--red)' }}>{fmt(totalReel)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              )
+              : (() => {
+                  const parMois = {}
+                  const ordreMois = []
+                  const sorted = [...reelLignes].sort((a, b) => (a.date_ecriture || '').localeCompare(b.date_ecriture || ''))
+                  sorted.forEach(l => {
+                    const key = l.date_ecriture ? l.date_ecriture.slice(0, 7) : 'inconnu'
+                    if (!parMois[key]) { parMois[key] = []; ordreMois.push(key) }
+                    parMois[key].push(l)
+                  })
+                  return (
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr>
+                          <th style={thStyle}>Date</th>
+                          <th style={thStyle}>Libellé</th>
+                          <th style={thStyle}>Commentaire</th>
+                          <th style={{ ...thStyle, textAlign: 'right' }}>Montant</th>
+                          <th style={{ ...thStyle, textAlign: 'right', width: 90 }}>Copier</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ordreMois.map(mois => {
+                          const lignesMois = parMois[mois]
+                          const totalMois = lignesMois.reduce((s, l) => s + parseFloat(l.montant || 0), 0)
+                          const labelMois = moisLabel(mois + '-01')
+                          return [
+                            // Sous-total mois avec 2 boutons
+                            <tr key={`st-${mois}`} style={{ background: 'rgba(61,26,110,.06)', borderTop: '1px solid var(--gray200)' }}>
+                              <td style={{ padding: '5px 6px', fontSize: 11, fontWeight: 700, color: 'var(--navy)', whiteSpace: 'nowrap' }}>
+                                {labelMois}
+                              </td>
+                              <td colSpan={2} style={{ padding: '5px 6px', fontSize: 11, color: 'var(--gray400)', fontStyle: 'italic' }}>
+                                {lignesMois.length} écriture{lignesMois.length > 1 ? 's' : ''}
+                              </td>
+                              <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 700, fontSize: 12, color: totalMois > 0 ? 'var(--green)' : 'var(--red)' }}>
+                                {fmt(totalMois)}
+                              </td>
+                              <td style={{ padding: '5px 4px', textAlign: 'right' }}>
+                                <div style={{ display: 'flex', gap: 3, justifyContent: 'flex-end' }}>
+                                  <button
+                                    className="btn btn-xs btn-outline"
+                                    title={`Copier les ${lignesMois.length} lignes de ${labelMois}`}
+                                    onClick={e => { e.stopPropagation(); copierMoisLignes(lignesMois, labelMois) }}
+                                    style={{ fontSize: 10, padding: '2px 5px' }}
+                                  >⧉ Lignes</button>
+                                  <button
+                                    className="btn btn-xs btn-gold"
+                                    title={`Copier 1 ligne = total ${labelMois}`}
+                                    onClick={e => { e.stopPropagation(); copierMoisTotal(lignesMois, labelMois) }}
+                                    style={{ fontSize: 10, padding: '2px 5px' }}
+                                  >⧉ Total</button>
+                                </div>
+                              </td>
+                            </tr>,
+                            // Lignes du mois avec bouton copie unitaire
+                            ...lignesMois.map(l => (
+                              <tr key={l.id} style={{ borderBottom: '1px solid var(--gray100)' }}>
+                                <td style={{ padding: '3px 6px 3px 16px', fontSize: 11, whiteSpace: 'nowrap', color: 'var(--gray400)' }}>
+                                  {l.date_ecriture ? l.date_ecriture.slice(8, 10) + '/' + l.date_ecriture.slice(5, 7) : '—'}
+                                </td>
+                                <td style={{ padding: '3px 6px', fontSize: 11 }}>{l.libelle}</td>
+                                <td style={{ padding: '3px 6px', fontSize: 10, color: 'var(--gray400)' }}>{l.commentaire}</td>
+                                <td style={{ padding: '3px 6px', textAlign: 'right', fontSize: 11, fontWeight: 500, color: parseFloat(l.montant) > 0 ? 'var(--green)' : 'var(--red)' }}>
+                                  {fmt(parseFloat(l.montant))}
+                                </td>
+                                <td style={{ padding: '3px 4px', textAlign: 'right' }}>
+                                  <button
+                                    className="btn btn-xs btn-outline"
+                                    title="Copier cette ligne"
+                                    onClick={e => { e.stopPropagation(); copierLigne(l) }}
+                                    style={{ fontSize: 10, padding: '2px 5px' }}
+                                  >⧉</button>
+                                </td>
+                              </tr>
+                            ))
+                          ]
+                        })}
+                        <tr style={{ borderTop: '2px solid var(--gray200)' }}>
+                          <td colSpan={3} style={{ padding: '6px 6px', fontWeight: 700, fontSize: 12 }}>Total réel</td>
+                          <td style={{ padding: '6px 6px', textAlign: 'right', fontWeight: 700, fontSize: 12, color: totalReel > 0 ? 'var(--green)' : 'var(--red)' }}>{fmt(totalReel)}</td>
+                          <td></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  )
+                })()
             }
             {reelLignes.length > 0 && (
               <button className="btn btn-xs btn-outline" style={{ marginTop: 10 }} onClick={copierReel}>
